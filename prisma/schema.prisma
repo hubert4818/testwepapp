@@ -1,0 +1,271 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum WalletTransactionType {
+  TOPUP
+  ANALYSIS_PAYMENT
+  BOOKING_PAYMENT
+  REFUND
+  ADJUSTMENT
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TopupStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AnalysisStatus {
+  DRAFT
+  SUBMITTED
+  PAID
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+enum BookingStatus {
+  REQUESTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum ReferenceType {
+  SIGNATURE_SAMPLE
+  HANDWRITING_SAMPLE
+  COMPARISON_SAMPLE
+  OTHER
+}
+
+enum AnalysisServiceType {
+  AI
+  ZOOM
+}
+
+model User {
+  id                    String              @id @default(cuid())
+  email                 String              @unique
+  passwordHash          String
+  fullName              String
+  phone                 String?
+  role                  UserRole            @default(USER)
+  isActive              Boolean             @default(true)
+  lastSignedInAt        DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  wallet                Wallet?
+  sessions              AuthSession[]
+  walletTransactions    WalletTransaction[] @relation("TransactionUser")
+  topupRequests         TopupRequest[]      @relation("TopupRequester")
+  reviewedTopups        TopupRequest[]      @relation("TopupReviewer")
+  signatureFiles        SignatureFile[]     @relation("SignatureFileUploader")
+  analysisRequests      AnalysisRequest[]   @relation("AnalysisRequester")
+  analysisResults       AnalysisResult[]    @relation("AnalysisResultAuthor")
+  zoomBookings          ZoomBooking[]       @relation("ZoomBookingRequester")
+  confirmedBookings     ZoomBooking[]       @relation("ZoomBookingConfirmer")
+  auditLogsAsActor      AuditLog[]          @relation("AuditActor")
+  auditLogsAsTarget     AuditLog[]          @relation("AuditTarget")
+}
+
+model AuthSession {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  lastSeenAt DateTime?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Wallet {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  balance      Int                 @default(0)
+  currency     String              @default("VND")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+  topupRequests TopupRequest[]
+}
+
+model WalletTransaction {
+  id                String                  @id @default(cuid())
+  walletId          String
+  userId            String
+  type              WalletTransactionType
+  status            WalletTransactionStatus @default(COMPLETED)
+  amount            Int
+  balanceBefore     Int
+  balanceAfter      Int
+  description       String?
+  referenceCode     String?
+  metadata          Json?
+  topupRequestId    String?
+  analysisRequestId String?
+  zoomBookingId     String?
+  processedAt       DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  wallet            Wallet                  @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user              User                    @relation("TransactionUser", fields: [userId], references: [id], onDelete: Cascade)
+  topupRequest      TopupRequest?           @relation(fields: [topupRequestId], references: [id], onDelete: SetNull)
+  analysisRequest   AnalysisRequest?        @relation(fields: [analysisRequestId], references: [id], onDelete: SetNull)
+  zoomBooking       ZoomBooking?            @relation(fields: [zoomBookingId], references: [id], onDelete: SetNull)
+
+  @@index([walletId, createdAt])
+  @@index([userId, createdAt])
+  @@index([topupRequestId])
+  @@index([analysisRequestId])
+  @@index([zoomBookingId])
+}
+
+model TopupRequest {
+  id                 String              @id @default(cuid())
+  userId             String
+  walletId           String
+  amount             Int
+  bankReference      String?
+  transferContent    String?
+  note               String?
+  status             TopupStatus         @default(PENDING)
+  submittedAt        DateTime            @default(now())
+  reviewedAt         DateTime?
+  reviewedById       String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  user               User                @relation("TopupRequester", fields: [userId], references: [id], onDelete: Cascade)
+  wallet             Wallet              @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  reviewedBy         User?               @relation("TopupReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  walletTransactions WalletTransaction[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model SignatureFile {
+  id                String          @id @default(cuid())
+  userId            String
+  analysisRequestId String?
+  referenceType     ReferenceType
+  storageProvider   String
+  storageKey        String
+  fileName          String
+  mimeType          String
+  fileSize          Int
+  publicUrl         String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  uploadedBy        User            @relation("SignatureFileUploader", fields: [userId], references: [id], onDelete: Cascade)
+  analysisRequest   AnalysisRequest? @relation(fields: [analysisRequestId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([analysisRequestId])
+}
+
+model AnalysisRequest {
+  id                    String              @id @default(cuid())
+  userId                String
+  serviceType           AnalysisServiceType
+  status                AnalysisStatus      @default(DRAFT)
+  title                 String
+  note                  String?
+  referenceAccuracyCap  Int
+  amountCharged         Int
+  requestedAt           DateTime            @default(now())
+  completedAt           DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  user                  User                @relation("AnalysisRequester", fields: [userId], references: [id], onDelete: Cascade)
+  files                 SignatureFile[]
+  result                AnalysisResult?
+  walletTransactions    WalletTransaction[]
+  zoomBookings          ZoomBooking[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model AnalysisResult {
+  id                 String          @id @default(cuid())
+  analysisRequestId  String          @unique
+  createdById        String?
+  summary            String
+  detailedMarkdown   String
+  confidenceScore    Int?
+  referenceAccuracy  Int?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  analysisRequest    AnalysisRequest @relation(fields: [analysisRequestId], references: [id], onDelete: Cascade)
+  createdBy          User?           @relation("AnalysisResultAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+}
+
+model ZoomBooking {
+  id                String              @id @default(cuid())
+  userId            String
+  analysisRequestId String?
+  status            BookingStatus       @default(REQUESTED)
+  scheduledAt       DateTime?
+  durationMinutes   Int                 @default(45)
+  meetingUrl        String?
+  contactEmail      String?
+  note              String?
+  amountCharged     Int
+  confirmedById     String?
+  confirmedAt       DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  user              User                @relation("ZoomBookingRequester", fields: [userId], references: [id], onDelete: Cascade)
+  analysisRequest   AnalysisRequest?    @relation(fields: [analysisRequestId], references: [id], onDelete: SetNull)
+  confirmedBy       User?               @relation("ZoomBookingConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+  walletTransactions WalletTransaction[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model AuditLog {
+  id           String    @id @default(cuid())
+  actorUserId  String?
+  targetUserId String?
+  entityType   String
+  entityId     String
+  action       String
+  description  String?
+  metadata     Json?
+  ipAddress    String?
+  createdAt    DateTime  @default(now())
+  actor        User?     @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  target       User?     @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([targetUserId, createdAt])
+}
