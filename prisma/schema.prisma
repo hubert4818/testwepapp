@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum AnalysisType {
+  AI
+  ZOOM
+}
+
+enum AnalysisStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+enum TopupStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum BookingStatus {
+  REQUESTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id             String      @id @default(cuid())
+  email          String      @unique
+  passwordHash   String?
+  fullName       String?
+  phone          String?
+  role           UserRole    @default(USER)
+  walletBalance  Int         @default(0)
+  analyses       Analysis[]
+  topups         Topup[]
+  bookings       Booking[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+model Analysis {
+  id               String          @id @default(cuid())
+  userId           String
+  type             AnalysisType
+  status           AnalysisStatus  @default(DRAFT)
+  title            String
+  note             String?
+  resultSummary    String?
+  confidenceScore  Int?
+  referenceAccuracy Int?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Topup {
+  id                 String       @id @default(cuid())
+  userId             String
+  amount             Int
+  bankReference      String?
+  transferContent    String?
+  status             TopupStatus  @default(PENDING)
+  reviewedAt         DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Booking {
+  id            String        @id @default(cuid())
+  userId        String
+  analysisId    String?
+  status        BookingStatus @default(REQUESTED)
+  scheduledAt   DateTime?
+  meetingUrl    String?
+  note          String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
